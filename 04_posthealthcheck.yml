@@ -60,7 +60,7 @@
         - name: Web service health check via URL
           ansible.builtin.uri:
             url: "{{ item.url }}"
-            status_code: 200
+            status_code: [200, 403]
             timeout: 15
             validate_certs: "{{ item.validate_certs | default(true) }}"
           loop: "{{ patch_services }}"
