@@ -6,9 +6,9 @@
 stop_services_before_patch: true   # set false to skip step 2 entirely
 
 patch_services:
-  - name: nginx
+  - name: httpd
     type: webserver
-    url: "https://{{ inventory_hostname }}/healthz"
+    url: "http://{{ inventory_hostname }}:80"
     validate_certs: false
 
   - name: myapp
@@ -20,7 +20,3 @@ patch_services:
 #   - "containerd*"
 #   - "kernel*"           # example: pin kernel out of patch runs
 
-# Optional: registration credentials (usually set at group/org level in
-# AAP as extra_vars or a survey, not committed to host_vars in plaintext)
-# subscription_manager_org_id: "1234567"
-# subscription_manager_activationkey: "my-activation-key"
