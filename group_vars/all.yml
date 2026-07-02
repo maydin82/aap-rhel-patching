@@ -12,10 +12,10 @@ exclude_packages:
                         # define per-host or per-group as needed.
 
 # --- Satellite registration: values shared across the whole run ---
-# satellite_url: "https://satellite.example.com"
-# satellite_organization_id: 1
+satellite_url: "https://satellite.666q7.sandbox1900.opentlc.com"
+satellite_organization_id: 1
 # satellite_registration_jwt: "{{ vault_satellite_jwt }}"   # source from an AAP credential / Vault, not plaintext
-# satellite_registration_insecure: false
+satellite_registration_insecure: true
 
 # NOTE: satellite_activation_key is intentionally NOT set here - it's
 # defined per-group instead (see group_vars/webservers.yml,

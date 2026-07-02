@@ -1,0 +1,122 @@
+---
+# ============================================================================
+# 01_precheck.yml
+# Verifies subscription-manager registration (re-registers if needed) and
+# records the pre-patch state of any optional services defined in
+# `patch_services` (see inventory/host_vars/example_host.yml for format).
+# ============================================================================
+- name: RHEL Patching - Pre-Check
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Display detected RHEL major version
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} is running RHEL {{ ansible_facts['distribution_major_version'] }}"
+
+    - name: Check subscription-manager registration status
+      ansible.builtin.command: subscription-manager identity
+      register: sub_status
+      changed_when: false
+      failed_when: false
+
+    - name: Set registration fact
+      ansible.builtin.set_fact:
+        rhel_is_registered: "{{ sub_status.rc == 0 }}"
+
+    - name: Report registration status
+      ansible.builtin.debug:
+        msg: "Registration status: {{ 'REGISTERED' if rhel_is_registered else 'NOT REGISTERED' }}"
+
+    # --- Re-registration: Satellite Global Registration (curl/JWT method) ---
+    # Real Satellite-generated command looks like:
+    #   curl -sS 'https://satellite.example.com/register?activation_keys=rhel9-prod&organization_id=1' \
+    #     -H 'Authorization: Bearer <JWT>' | bash
+    # `satellite_url`, `satellite_organization_id`, and `satellite_registration_jwt`
+    # are shared across the whole run (set once, e.g. in group_vars/all.yml /
+    # survey / AAP credential). `satellite_activation_key` is expected to be
+    # a GROUP-level var (see inventory/group_vars/webservers.yml and
+    # inventory/group_vars/dbservers.yml for examples) so each host in the
+    # inventory automatically registers with the activation key that belongs
+    # to its group - no per-host logic or branching required.
+    - name: Build Satellite registration query parameters
+      ansible.builtin.set_fact:
+        satellite_register_query_parts: >-
+          {{
+            ['activation_keys=' + satellite_activation_key]
+            + (['organization_id=' + (satellite_organization_id | string)] if satellite_organization_id is defined else [])
+            + (['location_id=' + (satellite_location_id | string)] if satellite_location_id is defined else [])
+            + (['hostgroup_id=' + (satellite_hostgroup_id | string)] if satellite_hostgroup_id is defined else [])
+            + (['setup_insights=' + (satellite_setup_insights | string)] if satellite_setup_insights is defined else [])
+            + (['setup_remote_execution=' + (satellite_setup_remote_execution | string)] if satellite_setup_remote_execution is defined else [])
+          }}
+      when:
+        - not rhel_is_registered
+        - satellite_activation_key is defined
+
+    - name: Set Satellite registration query string
+      ansible.builtin.set_fact:
+        satellite_register_query: "{{ satellite_register_query_parts | join('&') }}"
+      when:
+        - not rhel_is_registered
+        - satellite_activation_key is defined
+
+    - name: Download and run Satellite global registration command
+      ansible.builtin.shell: |
+        curl -sS {{ '--insecure' if satellite_registration_insecure | default(false) else '' }} \
+          '{{ satellite_url }}/register?{{ satellite_register_query }}' \
+          -H "Authorization: Bearer {{ satellite_registration_jwt }}" \
+          | bash
+      args:
+        executable: /bin/bash
+      register: satellite_register_result
+      no_log: true   # the JWT appears in the command line - keep it out of job output
+      when:
+        - not rhel_is_registered
+        - satellite_url is defined
+        - satellite_registration_jwt is defined
+        - satellite_activation_key is defined
+
+    - name: Fail early if unregistered and required Satellite variables are missing
+      ansible.builtin.fail:
+        msg: >-
+          Host is not registered and one or more of `satellite_url`,
+          `satellite_registration_jwt`, `satellite_activation_key` are
+          missing. `satellite_activation_key` should come from the host's
+          inventory group (group_vars); `satellite_url` /
+          `satellite_registration_jwt` should be set once for the whole run
+          (survey / extra_vars / AAP credential).
+      when:
+        - not rhel_is_registered
+        - satellite_url is not defined
+          or satellite_registration_jwt is not defined
+          or satellite_activation_key is not defined
+
+    - name: Confirm registration after re-register attempt
+      ansible.builtin.command: subscription-manager identity
+      register: sub_status_after
+      changed_when: false
+      failed_when: sub_status_after.rc != 0
+      when: not rhel_is_registered
+
+    # --- Optional service precheck (pulled from hostvars, nothing enforced) ---
+    - name: Precheck optional services defined in patch_services
+      when: patch_services is defined and patch_services | length > 0
+      block:
+        - name: Gather service facts
+          ansible.builtin.service_facts:
+
+        - name: Report pre-patch state of each optional service
+          ansible.builtin.debug:
+            msg: >-
+              Service '{{ item.name }}' pre-patch state:
+              {{ ansible_facts.services[item.name + '.service'].state | default('not found') }}
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+    - name: No optional services defined for this host
+      ansible.builtin.debug:
+        msg: "No patch_services hostvar defined - skipping optional service precheck"
+      when: patch_services is not defined or patch_services | length == 0

@@ -2,4 +2,4 @@
 # Every host in the `webservers` inventory group inherits this automatically.
 # Nothing in the playbooks branches on group name - Ansible's normal
 # variable merging does the work.
-satellite_activation_key: "rhel-webservers-prod"
+satellite_activation_key: "RHEL7_Dev"
