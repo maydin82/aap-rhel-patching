@@ -8,6 +8,7 @@
 - name: RHEL Patching - Stop Optional Services
   hosts: "{{ target_hosts | default('all') }}"
   become: true
+  gather_facts: false
 
   tasks:
     - name: Stop optional services before patching
