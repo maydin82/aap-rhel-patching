@@ -57,6 +57,9 @@
             label: "{{ item.item.name }}"
 
         # --- Webserver URL check (only if type=webserver AND url provided) ---
+        # 403 is treated as a healthy response alongside 200 - some apps
+        # return 403 on the health path itself (e.g. auth-gated root, WAF
+        # rule) while still proving the web server is up and responding.
         - name: Web service health check via URL
           ansible.builtin.uri:
             url: "{{ item.url }}"
@@ -77,7 +80,7 @@
             msg: >-
               {{ item.item.name }}:
               {{ 'OK - HTTP ' + (item.status | default('N/A') | string) if not item.failed else 'FAILED - ' + (item.msg | default('no response')) }}
-          loop: "{{ web_check.results | default([]) }}"
+          loop: "{{ web_check.results | default([]) | rejectattr('skipped', 'defined') | list }}"
           loop_control:
             label: "{{ item.item.name }}"
 
@@ -100,7 +103,7 @@
             msg: >-
               {{ item.item.name }}:
               {{ 'OK - accepting connections' if item.rc == 0 else 'FAILED - ' + (item.stdout | default(item.msg | default('no response'))) }}
-          loop: "{{ pg_check.results | default([]) }}"
+          loop: "{{ pg_check.results | default([]) | rejectattr('skipped', 'defined') | list }}"
           loop_control:
             label: "{{ item.item.name }}"
 
@@ -124,7 +127,7 @@
         - name: Report MySQL check results
           ansible.builtin.debug:
             msg: "{{ item.item.name }}: {{ 'OK - server alive' if item.rc == 0 else 'FAILED - could not ping MySQL server' }}"
-          loop: "{{ mysql_check.results | default([]) }}"
+          loop: "{{ mysql_check.results | default([]) | rejectattr('skipped', 'defined') | list }}"
           loop_control:
             label: "{{ item.item.name }}"
 
@@ -132,3 +135,4 @@
       ansible.builtin.debug:
         msg: "No patch_services defined for this host - skipping service-level health checks"
       when: patch_services is not defined or patch_services | length == 0
+
