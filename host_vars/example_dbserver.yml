@@ -1,0 +1,18 @@
+---
+stop_services_before_patch: true
+
+patch_services:
+  - name: postgresql-15
+    type: database
+    db_type: postgres
+    db_host: localhost
+    db_port: 5432
+
+  # For a MySQL/MariaDB host instead, use:
+  # - name: mariadb
+  #   type: database
+  #   db_type: mysql
+  #   db_host: localhost
+  #   db_port: 3306
+  #   db_user: healthcheck
+  #   db_password: "{{ vault_healthcheck_db_password }}"   # store in AAP credential/vault, not plaintext

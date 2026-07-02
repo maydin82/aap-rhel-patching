@@ -1,0 +1,47 @@
+---
+# ============================================================================
+# 02_stop_services.yml
+# Optionally stops services before patching. Controlled by the boolean
+# `stop_services_before_patch` (survey var / extra_var, default false).
+# Only touches services listed in the `patch_services` hostvar.
+# ============================================================================
+- name: RHEL Patching - Stop Optional Services
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+
+  tasks:
+    - name: Stop optional services before patching
+      when:
+        - stop_services_before_patch | default(false) | bool
+        - patch_services is defined
+        - patch_services | length > 0
+      block:
+        - name: Stop each service defined in patch_services
+          ansible.builtin.systemd:
+            name: "{{ item.name }}"
+            state: stopped
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: stop_result
+          ignore_errors: true
+
+        - name: Report stop results
+          ansible.builtin.debug:
+            msg: >-
+              {{ item.item.name }}:
+              {{ 'stopped OK' if not item.failed else 'FAILED to stop - ' + (item.msg | default('unknown error')) }}
+          loop: "{{ stop_result.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+    - name: Step skipped
+      ansible.builtin.debug:
+        msg: >-
+          Skipping service stop step
+          ({{ 'stop_services_before_patch is false' if not (stop_services_before_patch | default(false) | bool)
+              else 'no patch_services defined for this host' }})
+      when: >
+        not (stop_services_before_patch | default(false) | bool)
+        or patch_services is not defined
+        or patch_services | length == 0

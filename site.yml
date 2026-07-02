@@ -1,0 +1,16 @@
+---
+# ============================================================================
+# site.yml
+# Runs all four stages in sequence within ONE job template, instead of
+# chaining four separate Job Templates in an AAP Workflow. Use this if you
+# don't need per-stage approval nodes / branching / separate RBAC and just
+# want a single "Patch RHEL" job template.
+#
+# NOTE: import_playbook runs each file as its own play set against the same
+# hosts pattern; failures in an earlier file will stop the run by default,
+# same as an AAP workflow with "run next node on success" links.
+# ============================================================================
+- import_playbook: 01_precheck.yml
+- import_playbook: 02_stop_services.yml
+- import_playbook: 03_patch_and_reboot.yml
+- import_playbook: 04_posthealthcheck.yml

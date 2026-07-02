@@ -1,0 +1,61 @@
+---
+# ============================================================================
+# 03_patch_and_reboot.yml
+# Updates all packages, excluding docker/containerd packages, then reboots
+# the server unconditionally. Uses `yum` on RHEL 7 and `dnf` on RHEL 8/9/10
+# since dnf is the only supported backend from RHEL 8 onward (RHEL 10 ships
+# dnf5 with `yum` as a compatibility symlink only).
+# ============================================================================
+- name: RHEL Patching - Update Packages and Reboot
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    exclude_packages_default:
+      - "docker*"
+      - "containerd*"
+
+  tasks:
+    - name: Determine package exclusion list
+      ansible.builtin.set_fact:
+        effective_exclude_packages: "{{ exclude_packages | default(exclude_packages_default) }}"
+
+    - name: Update all packages (RHEL 7 - yum backend)
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+        exclude: "{{ effective_exclude_packages | join(',') }}"
+        update_cache: true
+      register: patch_result_el7
+      when: ansible_facts['distribution_major_version'] == '7'
+
+    - name: Update all packages (RHEL 8/9/10 - dnf backend)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        exclude: "{{ effective_exclude_packages }}"
+        update_cache: true
+      register: patch_result_el8plus
+      when: ansible_facts['distribution_major_version'] is version('8', '>=')
+
+    - name: Record whether patching produced changes
+      ansible.builtin.set_fact:
+        patching_changed: "{{ (patch_result_el7.changed | default(false)) or (patch_result_el8plus.changed | default(false)) }}"
+
+    - name: Report package update result
+      ansible.builtin.debug:
+        msg: >-
+          Patching complete on {{ inventory_hostname }}
+          (RHEL {{ ansible_facts['distribution_major_version'] }}),
+          changed={{ patching_changed }},
+          excluded={{ effective_exclude_packages | join(', ') }}
+
+    - name: Reboot server unconditionally
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+        connect_timeout: 20
+        pre_reboot_delay: 5
+        post_reboot_delay: 30
+        test_command: uptime
+        msg: "Rebooting after patch cycle - initiated by AAP"

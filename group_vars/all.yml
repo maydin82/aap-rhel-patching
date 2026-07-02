@@ -1,0 +1,22 @@
+---
+# Global defaults - override per-group or per-host, or via AAP survey /
+# extra_vars at workflow launch time.
+
+stop_services_before_patch: false
+
+exclude_packages:
+  - "docker*"
+  - "containerd*"
+
+# patch_services: []   # intentionally left undefined at global scope;
+                        # define per-host or per-group as needed.
+
+# --- Satellite registration: values shared across the whole run ---
+# satellite_url: "https://satellite.example.com"
+# satellite_organization_id: 1
+# satellite_registration_jwt: "{{ vault_satellite_jwt }}"   # source from an AAP credential / Vault, not plaintext
+# satellite_registration_insecure: false
+
+# NOTE: satellite_activation_key is intentionally NOT set here - it's
+# defined per-group instead (see group_vars/webservers.yml,
+# group_vars/dbservers.yml) since different groups use different keys.

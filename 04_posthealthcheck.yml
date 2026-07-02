@@ -1,0 +1,134 @@
+---
+# ============================================================================
+# 04_posthealthcheck.yml
+# Waits for the host to come back after reboot, re-verifies registration,
+# and validates every optional service defined in `patch_services`:
+#   - generic service  -> systemd state=started
+#   - webserver        -> systemd check + uri check IF `url` key is set
+#   - database          -> systemd check + pg_isready (postgres) or
+#                          mysqladmin ping (mysql) based on `db_type`
+# Any service key not present is simply skipped - nothing is enforced that
+# wasn't explicitly configured in hostvars.
+# ============================================================================
+- name: RHEL Patching - Post Health Check
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Wait for host to be reachable after reboot
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+        delay: 5
+
+    - name: Re-verify subscription-manager registration post-reboot
+      ansible.builtin.command: subscription-manager identity
+      register: sub_status_post
+      changed_when: false
+      failed_when: false
+
+    - name: Report post-reboot registration status
+      ansible.builtin.debug:
+        msg: "Registration status after reboot: {{ 'REGISTERED' if sub_status_post.rc == 0 else 'NOT REGISTERED' }}"
+
+    - name: Post-patch checks for optional services
+      when: patch_services is defined and patch_services | length > 0
+      block:
+        - name: Gather service facts
+          ansible.builtin.service_facts:
+
+        - name: Verify each optional service is active
+          ansible.builtin.systemd:
+            name: "{{ item.name }}"
+            state: started
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: service_check
+          ignore_errors: true
+
+        - name: Report service check results
+          ansible.builtin.debug:
+            msg: >-
+              {{ item.item.name }}:
+              {{ 'OK - running' if not item.failed else 'FAILED - ' + (item.msg | default('could not start')) }}
+          loop: "{{ service_check.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        # --- Webserver URL check (only if type=webserver AND url provided) ---
+        - name: Web service health check via URL
+          ansible.builtin.uri:
+            url: "{{ item.url }}"
+            status_code: 200
+            timeout: 15
+            validate_certs: "{{ item.validate_certs | default(true) }}"
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - item.type | default('') == 'webserver'
+            - item.url is defined
+          register: web_check
+          ignore_errors: true
+
+        - name: Report web health check results
+          ansible.builtin.debug:
+            msg: >-
+              {{ item.item.name }}:
+              {{ 'OK - HTTP ' + (item.status | default('N/A') | string) if not item.failed else 'FAILED - ' + (item.msg | default('no response')) }}
+          loop: "{{ web_check.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        # --- PostgreSQL readiness check (type=database, db_type=postgres) ---
+        - name: PostgreSQL readiness check
+          ansible.builtin.command: >-
+            pg_isready -h {{ item.db_host | default('localhost') }} -p {{ item.db_port | default(5432) }}
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - item.type | default('') == 'database'
+            - item.db_type | default('') == 'postgres'
+          register: pg_check
+          changed_when: false
+          ignore_errors: true
+
+        - name: Report PostgreSQL check results
+          ansible.builtin.debug:
+            msg: >-
+              {{ item.item.name }}:
+              {{ 'OK - accepting connections' if item.rc == 0 else 'FAILED - ' + (item.stdout | default(item.msg | default('no response'))) }}
+          loop: "{{ pg_check.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+        # --- MySQL/MariaDB ping check (type=database, db_type=mysql) ---
+        - name: MySQL/MariaDB ping check
+          ansible.builtin.command: >-
+            mysqladmin ping -h {{ item.db_host | default('localhost') }} -P {{ item.db_port | default(3306) }}
+            {{ '-u ' + item.db_user if item.db_user is defined else '' }}
+            {{ '-p' + item.db_password if item.db_password is defined else '' }}
+          loop: "{{ patch_services }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - item.type | default('') == 'database'
+            - item.db_type | default('') == 'mysql'
+          register: mysql_check
+          changed_when: false
+          ignore_errors: true
+          no_log: true
+
+        - name: Report MySQL check results
+          ansible.builtin.debug:
+            msg: "{{ item.item.name }}: {{ 'OK - server alive' if item.rc == 0 else 'FAILED - could not ping MySQL server' }}"
+          loop: "{{ mysql_check.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+
+    - name: No optional services defined
+      ansible.builtin.debug:
+        msg: "No patch_services defined for this host - skipping service-level health checks"
+      when: patch_services is not defined or patch_services | length == 0
