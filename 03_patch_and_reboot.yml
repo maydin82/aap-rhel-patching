@@ -9,7 +9,7 @@
 - name: RHEL Patching - Update Packages and Reboot
   hosts: "{{ target_hosts | default('all') }}"
   become: true
-  gather_facts: false
+  gather_facts: true
 
   vars:
     exclude_packages_default:

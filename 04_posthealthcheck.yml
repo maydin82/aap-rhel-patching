@@ -13,7 +13,7 @@
 - name: RHEL Patching - Post Health Check
   hosts: "{{ target_hosts | default('all') }}"
   become: true
-  gather_facts: false
+  gather_facts: true
 
   tasks:
     - name: Wait for host to be reachable after reboot
